@@ -1,0 +1,38 @@
+1-Usar como dados de entrada uma lista de agências bancárias do Santander (arquivo obtido do Open Finance Publico, mas anexado aqui para ser usado a cada execução via upload do usuário), essa é uma versão POC do outro workflow gerado que conecta online no open finance, esse não deve conectar no open finance e sim usar exclusivamente o arquivo fornecido pelo usuário a cada execução.
+2-Armazenar todas as agências obtidas no arquivo (itens dentro de uma lista em json)
+3-Entre uma execução e outra, analisar se o arquivo atual tem alguma agência que existia na memória anterior e que saiu nessa nova execução.
+4-Ao identificar uma ou mais agência(s) excluída(s) (comparando a lista da execução anterior com a atual), disparar um email gmail para jose.maturana.acc@gmail.com com o objeto inteiro da agência, informando uma oportunidade de negócio para abertura de agencia fisica da fintech.
+branchesSantander20260929.json
+
+esqueci de anexar o arquivo, segue anexo e o texto novamente:
+
+1-Usar como dados de entrada uma lista de agências bancárias do Santander (arquivo obtido do Open Finance Publico, mas anexado aqui para ser usado a cada execução via upload do usuário), essa é uma versão POC do outro workflow gerado que conecta online no open finance, esse não deve conectar no open finance e sim usar exclusivamente o arquivo fornecido pelo usuário a cada execução.
+2-Armazenar todas as agências obtidas no arquivo (itens dentro de uma lista em json)
+3-Entre uma execução e outra, analisar se o arquivo atual tem alguma agência que existia na memória anterior e que saiu nessa nova execução.
+4-Ao identificar uma ou mais agência(s) excluída(s) (comparando a lista da execução anterior com a atual), disparar um email gmail para jose.maturana.acc@gmail.com com o objeto inteiro da agência, informando uma oportunidade de negócio para abertura de agencia fisica da fintech.
+
+Thought for 52m 14s
+Criei o workflow "POC - Agências Santander removidas (upload de arquivo)" (ID 4lXN4W1y1wwIGZt5). Ele não acessa o Open Finance: usa só o arquivo que você envia em cada execução. Ainda não foi testado de verdade. Na verificação, o envio do email e a gravação na tabela foram simulados.
+
+Como funciona
+
+Entrada: um formulário recebe o arquivo JSON no mesmo formato do seu anexo ({ "data": [ ...agências ] }). Se preferir, dá para colar o conteúdo num campo de texto.
+Memória: todas as agências ficam salvas na nova tabela santander_agencias_poc. Criei uma tabela separada para não misturar com a santander_agencias do outro workflow. Cada agência é identificada por CNPJ + identification.code (ex.: 90400888000142-0001), e o objeto completo fica guardado em JSON.
+Comparação: a cada execução, o workflow compara o arquivo novo com a lista salva na execução anterior. Depois, substitui a lista salva pela atual.
+Alerta: se alguma agência sumiu, sai um email pelo Gmail para jose.maturana.acc@gmail.com. Ele vem com o assunto de oportunidade de negócio, o endereço e o objeto JSON inteiro de cada agência removida. Se nenhuma sumiu, nenhum email é enviado. A credencial "Gmail account" que você já tinha está conectada.
+Verificação
+
+Testei com uma agência fictícia salva na memória que não aparecia no arquivo novo. A comparação encontrou essa agência como removida e montou o email corretamente.
+O envio do email, a limpeza e a gravação na tabela foram simulados, então ainda não rodaram de verdade.
+Já apaguei a agência fictícia. A tabela está vazia.
+Observação: na primeira execução a memória está vazia. Ela só salva as agências e não envia email. O alerta começa a partir da segunda execução.
+
+Como testar de verdade
+
+No editor do workflow, clique em Execute workflow. O formulário de teste vai abrir.
+Envie o arquivo branchesSantander20260929.json. Isso preenche a memória.
+Execute de novo com uma cópia do arquivo sem uma ou duas agências. Assim o email deve sair.
+Depois me avise que eu confiro as execuções e o email enviado.
+
+Feito: workflow montado e lógica de comparação verificada (com dados simulados).
+Próximo: teste real com o seu arquivo (memória preenchida e email recebido).

@@ -1,0 +1,398 @@
+{
+  "name": "POC - Agências Santander removidas (upload de arquivo)",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "POC - Agências Santander (Open Finance)",
+        "formDescription": "Envie o arquivo JSON de agências (formato Open Finance: objeto com a lista em \"data\"). A lista será comparada com a execução anterior.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Arquivo de agências (JSON)",
+              "fieldType": "file",
+              "fieldName": "arquivo",
+              "multipleFiles": false,
+              "acceptFileTypes": ".json"
+            },
+            {
+              "fieldLabel": "Ou cole o conteúdo JSON (opcional, usado se nenhum arquivo for enviado)",
+              "fieldType": "textarea",
+              "fieldName": "conteudo_json"
+            }
+          ]
+        },
+        "options": {
+          "respondWithOptions": {
+            "values": {
+              "formSubmittedText": "Arquivo recebido. A comparação está em processamento."
+            }
+          }
+        }
+      },
+      "id": "b87ad6f4-98f5-41ad-9521-b8859a5e90ec",
+      "name": "Upload Branches File",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        96
+      ],
+      "webhookId": "9515ee54-4b96-47a6-8530-fb417230b44f"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst binKeys = Object.keys(item.binary || {});\nlet parsed;\nlet fileName = '';\nif (binKeys.length > 0) {\n  const buffer = await this.helpers.getBinaryDataBuffer(0, binKeys[0]);\n  let text = buffer.toString('utf8');\n  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);\n  parsed = JSON.parse(text);\n  fileName = item.binary[binKeys[0]].fileName || '';\n} else if (item.json.conteudo_json) {\n  const raw = item.json.conteudo_json;\n  parsed = typeof raw === 'string' ? JSON.parse(raw.replace(/^﻿/, '')) : raw;\n  fileName = 'conteudo_colado';\n} else {\n  throw new Error('Nenhum arquivo ou conteúdo JSON foi enviado no formulário.');\n}\nconst branches = Array.isArray(parsed) ? parsed : (parsed.data || []);\nif (!Array.isArray(branches) || branches.length === 0) {\n  throw new Error('O arquivo não contém nenhuma agência na lista \"data\". Nada foi alterado.');\n}\nreturn [{ json: { branches: branches, fileName: fileName } }];"
+      },
+      "id": "1386498d-12c4-4aa9-9d0f-1068db8de238",
+      "name": "Parse Branches File",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tCnmW8QnN7m2NSY5",
+          "cachedResultName": "santander_agencias_poc"
+        },
+        "returnAll": true
+      },
+      "id": "6517cdf7-9c51-427d-835e-6d38c462cd7f",
+      "name": "Get Previous Branches",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        496,
+        224
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const branches = $('Parse Branches File').first().json.branches;\nconst nowIso = new Date().toISOString();\n\nfunction keyOf(b) {\n  const cnpj = (b.participant && b.participant.cnpjNumber) || '';\n  const code = (b.identification && b.identification.code) || '';\n  return cnpj + '-' + code;\n}\n\nconst rows = [];\nconst currentKeys = new Set();\nfor (const b of branches) {\n  const key = keyOf(b);\n  if (currentKeys.has(key)) continue;\n  currentKeys.add(key);\n  rows.push({\n    branch_key: key,\n    branch_name: (b.identification && b.identification.name) || '',\n    town: ((b.postalAddress && b.postalAddress.townName) || '') + '/' + ((b.postalAddress && b.postalAddress.countrySubDivision) || ''),\n    branch_json: JSON.stringify(b),\n    last_seen: nowIso,\n  });\n}\n\nconst previous = $input.all().map(i => i.json).filter(r => r && r.branch_key);\nconst removed = [];\nfor (const r of previous) {\n  if (!currentKeys.has(r.branch_key)) {\n    let obj = null;\n    try { obj = JSON.parse(r.branch_json); } catch (e) { obj = { raw: r.branch_json }; }\n    removed.push(obj);\n  }\n}\n\nfunction esc(s) {\n  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n}\n\nlet html = '<h2>Oportunidade de negócio: abertura de agência física da fintech</h2>';\nhtml += '<p>Na comparação entre o arquivo anterior e o atual, ' + removed.length + ' agência(s) Santander deixaram de constar na lista. ';\nhtml += 'As regiões abaixo podem representar uma oportunidade para abertura de agência física da fintech.</p>';\nfor (const b of removed) {\n  const id = b.identification || {};\n  const addr = b.postalAddress || {};\n  html += '<hr><h3>Agência ' + esc(id.code || '') + ' - ' + esc(id.name || '') + '</h3>';\n  html += '<p>' + esc(addr.address || '') + ', ' + esc(addr.districtName || '') + ' - ' + esc(addr.townName || '') + '/' + esc(addr.countrySubDivision || '') + ' - CEP ' + esc(addr.postCode || '') + '</p>';\n  html += '<p><b>Objeto completo da agência:</b></p>';\n  html += '<pre style=\"background:#f4f4f4;padding:8px;font-size:12px;\">' + esc(JSON.stringify(b, null, 2)) + '</pre>';\n}\n\nreturn [{ json: {\n  previousCount: previous.length,\n  currentCount: rows.length,\n  removedCount: removed.length,\n  removed: removed,\n  emailHtml: html,\n  rows: rows,\n} }];"
+      },
+      "id": "94fdfeea-e672-452d-a058-cab699dfd59a",
+      "name": "Compare Branches",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "removed-count",
+              "leftValue": "={{ $json.removedCount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0a211ea9-5564-44ce-bc73-f7d36a9b5852",
+      "name": "Any Branch Removed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        800,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "seu.email@gmail.com",
+        "subject": "=Oportunidade de negócio: {{ $json.removedCount }} agência(s) Santander encerrada(s) - abertura de agência física da fintech",
+        "message": "={{ $json.emailHtml }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "bf69d6ef-caab-4712-b172-8385ead4791d",
+      "name": "Send Opportunity Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1024,
+        128
+      ],
+      "webhookId": "508a01d0-37ab-4765-9c87-f8aab5a10f20",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "rBqMdiG1NiiZkeJp",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tCnmW8QnN7m2NSY5",
+          "cachedResultName": "santander_agencias_poc"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "branch_key",
+              "condition": "isNotEmpty"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c32ab722-8c5f-483a-86f5-4a7137d578f7",
+      "name": "Clear Previous Snapshot",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        800,
+        320
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $('Compare Branches').first().json.rows || [];\nreturn rows.map(r => ({ json: r }));"
+      },
+      "id": "3ea85bef-2eee-4688-809c-30cddff2cf47",
+      "name": "Prepare Current Snapshot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "tCnmW8QnN7m2NSY5",
+          "cachedResultName": "santander_agencias_poc"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "branch_key": "={{ $json.branch_key }}",
+            "branch_name": "={{ $json.branch_name }}",
+            "town": "={{ $json.town }}",
+            "branch_json": "={{ $json.branch_json }}",
+            "last_seen": "={{ $json.last_seen }}"
+          },
+          "schema": [
+            {
+              "id": "branch_key",
+              "displayName": "branch_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "branch_name",
+              "displayName": "branch_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "town",
+              "displayName": "town",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "branch_json",
+              "displayName": "branch_json",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_seen",
+              "displayName": "last_seen",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {
+          "optimizeBulk": true
+        }
+      },
+      "id": "2858fe40-37d3-463f-89f6-e7312092b425",
+      "name": "Store Current Branches",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1248,
+        320
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Upload Branches File": {
+      "main": [
+        [
+          {
+            "node": "Parse Branches File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Branches File": {
+      "main": [
+        [
+          {
+            "node": "Get Previous Branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Previous Branches": {
+      "main": [
+        [
+          {
+            "node": "Compare Branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare Branches": {
+      "main": [
+        [
+          {
+            "node": "Any Branch Removed?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Clear Previous Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Branch Removed?": {
+      "main": [
+        [
+          {
+            "node": "Send Opportunity Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear Previous Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Prepare Current Snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Current Snapshot": {
+      "main": [
+        [
+          {
+            "node": "Store Current Branches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "97bffee9-a465-4555-ac39-678b45fb4492",
+  "meta": {
+    "instanceId": "15649b0d6b4599681ab7cc247e6312f5e8e2a30aef0a38cad0f3cabe75665265"
+  },
+  "nodeGroups": [
+    {
+      "id": "77810720-5c74-436e-bb29-f8802c88bfdc",
+      "name": "Detect closed branches",
+      "nodeIds": [
+        "1386498d-12c4-4aa9-9d0f-1068db8de238",
+        "6517cdf7-9c51-427d-835e-6d38c462cd7f",
+        "94fdfeea-e672-452d-a058-cab699dfd59a"
+      ],
+      "description": "Reads the uploaded file and compares it with the last stored list to find branches that disappeared"
+    },
+    {
+      "id": "abce0170-912b-4255-b88e-a8cd2f7a7840",
+      "name": "Alert business opportunity",
+      "nodeIds": [
+        "0a211ea9-5564-44ce-bc73-f7d36a9b5852",
+        "bf69d6ef-caab-4712-b172-8385ead4791d"
+      ],
+      "description": "Only when branches disappeared: emails the full branch records as a physical-branch opportunity"
+    },
+    {
+      "id": "2f73c799-a7a8-4915-b3fa-6908d9444cb8",
+      "name": "Refresh stored branches",
+      "nodeIds": [
+        "c32ab722-8c5f-483a-86f5-4a7137d578f7",
+        "3ea85bef-2eee-4688-809c-30cddff2cf47",
+        "2858fe40-37d3-463f-89f6-e7312092b425"
+      ],
+      "description": "Replaces the saved list with this upload so the next run compares against it"
+    }
+  ],
+  "id": "4lXN4W1y1wwIGZt5",
+  "tags": []
+}

@@ -1,0 +1,12 @@
+*.zip
+!**/15_prjAspnetWebApplicationVazio.zip
+**/15_prjAspnetWebApplicationVazio/
+Thumbs.db
+desktop.ini
+__MACOSX/
+.ipynb_checkpoints/
+download-log.txt
+publicar-log.txt
+*.cmd
+1-baixar-material.ps1
+2-publicar-github.ps1
