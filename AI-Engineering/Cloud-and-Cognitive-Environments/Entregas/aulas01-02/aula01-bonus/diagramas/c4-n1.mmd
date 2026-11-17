@@ -1,0 +1,10 @@
+C4Context
+  title Onboarding digital · C4 nível 1 (contexto)
+  Person(cliente, "Cliente", "Abre conta pelo celular")
+  Person(analista, "Analista de backoffice", "Trata a análise manual")
+  System(plataforma, "Plataforma de onboarding", "Quantum Finance · AWS")
+  System_Ext(bureau, "Bureau de crédito", "Score e restrições por CPF")
+  Rel(cliente, plataforma, "Envia documento e selfie; recebe a decisão")
+  Rel(plataforma, bureau, "Consulta CPF")
+  Rel(analista, plataforma, "Revisa propostas em análise manual")
+  UpdateLayoutConfig($c4ShapeInRow="2", $c4BoundaryInRow="1")

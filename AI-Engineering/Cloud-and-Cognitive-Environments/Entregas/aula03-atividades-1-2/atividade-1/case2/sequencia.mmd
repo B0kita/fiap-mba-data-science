@@ -1,0 +1,37 @@
+sequenceDiagram
+  autonumber
+  actor U as Analista / Cliente (app)
+  participant API as API de consulta<br/>(API Gateway HTTP)
+  participant O as Orquestrador RAG<br/>(AWS Lambda)
+  participant T as Embeddings<br/>(Bedrock Titan V2)
+  participant V as Base vetorial<br/>(S3 Vectors)
+  participant M as Modelo de linguagem<br/>(Bedrock Claude Haiku 4.5)
+  participant A as Registro de auditoria<br/>(DynamoDB)
+
+  U->>API: POST /consultas {pergunta} + JWT [pago: 1 requisição]
+  API->>API: Valida JWT (rejeita 401 se inválido)
+  API->>O: Invoca síncrono (timeout 29 s) [pago: invocação x duração]
+  O->>T: Embedding da pergunta [pago: 100 tokens]
+  T-->>O: Vetor 1.024 dim
+  O->>V: QueryVectors(topK=5) [pago: 1 consulta + dados processados]
+  V-->>O: 5 trechos + metadados (doc, página, versão)
+  O->>O: Monta prompt = instruções (400) + trechos (2.500) + pergunta (100)
+  O->>M: InvokeModel (timeout 20 s) [pago: 3.000 tokens entrada]
+  alt Resposta em tempo
+    M-->>O: Resposta com citações [pago: ~408 tokens saída]
+    O->>A: PutItem(consulta_id, usuário, pergunta, resposta, fontes, tokens, status=OK) [pago: 3 WRU]
+    A-->>O: OK
+    O-->>API: 200 + resposta + fontes
+    API-->>U: Resposta com as fontes
+  else Modelo demora (> 20 s) ou throttling
+    M--xO: Timeout / ThrottlingException
+    O->>A: PutItem(consulta_id, ..., status=FALHA_MODELO) [pago: 1 WRU]
+    A-->>O: OK
+    O-->>API: 503 + "não foi possível responder agora" + trechos encontrados
+    API-->>U: Mensagem de indisponibilidade com links das fontes
+  end
+  opt Falha ao gravar a auditoria
+    A--xO: Erro DynamoDB
+    O->>A: Retry com backoff (até 3x)
+    Note over O,A: Se persistir, não devolve a resposta (503): toda consulta precisa estar registrada
+  end

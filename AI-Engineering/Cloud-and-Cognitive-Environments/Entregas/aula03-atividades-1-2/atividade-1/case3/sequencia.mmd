@@ -1,0 +1,53 @@
+sequenceDiagram
+  autonumber
+  participant CA as Central de atendimento
+  participant G as Gravações<br/>(S3)
+  participant EB as Disparo<br/>(EventBridge)
+  participant SF as Orquestrador<br/>(Step Functions)
+  participant TR as Transcrição<br/>(Transcribe)
+  participant VP as Verificação de PII<br/>(Lambda)
+  participant AN as Análise<br/>(Bedrock Haiku 4.5)
+  participant R as Resultados<br/>(DynamoDB)
+
+  CA->>G: PUT ligação.wav (~3 MB, 6 min) [pago: GB]
+  G-)EB: Object Created (gratuito)
+  EB-)SF: StartExecution(ligação_id) [pago: transição]
+
+  SF->>TR: StartTranscriptionJob(pt-BR, ContentRedaction=PII) [pago: 6 min + redação]
+  loop Até o job terminar (Wait 30 s, GetTranscriptionJob)
+    SF->>TR: GetTranscriptionJob
+    TR-->>SF: IN_PROGRESS | COMPLETED | FAILED
+  end
+
+  alt Transcrição FAILED ou LimitExceeded
+    SF->>TR: Retry 2x com backoff (tentar de novo)
+    alt Ainda falha
+      SF->>R: PutItem evento de falha (status=FALHA_TRANSCRICAO, motivo, tentativas) [pago]
+      Note over SF: Sinalizar: execução FAILED, alarme CloudWatch. O áudio fica em Gravações para reprocessar
+    end
+  else Transcrição vazia (sem fala)
+    SF->>R: PutItem status=DESCARTADA_SEM_CONTEUDO [pago]
+    Note over SF: Descartar: encerra sem chamar o modelo
+  else Transcrição mascarada pronta (~1.530 tokens)
+    TR->>G: Grava transcrição mascarada (transcricoes/) [pago: PUT]
+    SF->>VP: Invoke(transcrição mascarada) [pago: invocação]
+    alt Restou CPF, cartão ou telefone
+      VP-->>SF: PII_ENCONTRADA
+      SF->>R: PutItem status=BLOQUEADA_PII [pago]
+      Note over SF: Sinalizar: texto não vai ao modelo, alarme para revisão
+    else Texto limpo
+      VP-->>SF: OK
+      SF->>AN: InvokeModel(700 instr. + 1.530 transcrição) [pago: 2.230 tokens entrada]
+      alt Throttling (429)
+        SF->>AN: Retry 3x com backoff exponencial
+      end
+      alt Análise concluída
+        AN-->>SF: JSON qualidade/reclamação/conformidade [pago: 300 tokens saída]
+        SF->>R: PutItem resultado (10 KB) status=OK [pago: 10 WRU]
+      else Falha persiste após 3 tentativas
+        SF->>R: PutItem evento de falha (status=FALHA_ANALISE) [pago]
+        Note over SF: Sinalizar: alarme CloudWatch, time investiga pela tabela (GSI status)
+      end
+    end
+  end
+  Note over SF,R: Toda ligação termina com 1 status em Resultados: nenhuma fica pela metade

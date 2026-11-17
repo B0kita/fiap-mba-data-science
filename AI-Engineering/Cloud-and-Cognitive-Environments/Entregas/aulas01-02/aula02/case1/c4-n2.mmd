@@ -1,0 +1,30 @@
+C4Container
+  title Case 1 · Ingestão de normas para RAG (C4 nível 2)
+
+  Person(normas, "Time de normas", "Publica documentos novos ou atualizados")
+
+  System_Boundary(qf, "Quantum Finance · Ingestão RAG (us-east-1)") {
+    ContainerDb(s3docs, "Documentos originais", "Amazon S3 Standard", "PDFs com versionamento")
+    Container(eb, "Disparo por evento", "Amazon EventBridge", "Regra Object Created")
+    Container(ingestor, "Ingestor", "AWS Lambda (Python, 1 GB)", "Lê, quebra em trechos de 500 tokens, indexa")
+    Container(titan, "Embeddings", "Bedrock · Titan Embed V2", "1.024 dimensões · cobra por token")
+    ContainerDb(vec, "Base vetorial", "Amazon S3 Vectors", "Índice normas-idx · cobra por GB")
+    ContainerQueue(dlq, "Fila de falhas", "Amazon SQS (DLQ)", "Documentos para reprocessar")
+  }
+
+  Rel(normas, s3docs, "Envia documento (upload)")
+  Rel(s3docs, eb, "Emite evento Object Created")
+  Rel(eb, ingestor, "Invoca de forma assíncrona")
+  Rel(ingestor, s3docs, "Lê o arquivo original")
+  Rel(ingestor, titan, "Gera embedding de cada trecho [pago]")
+  Rel(ingestor, vec, "Grava vetores e metadados [pago]")
+  Rel(ingestor, dlq, "Envia evento após 3 falhas")
+  Rel(dlq, normas, "Avisa a falha (alarme CloudWatch)")
+
+  UpdateRelStyle(ingestor, titan, $offsetX="-150", $offsetY="10")
+  UpdateRelStyle(ingestor, vec, $offsetX="20", $offsetY="10")
+  UpdateRelStyle(ingestor, dlq, $offsetX="-160", $offsetY="60")
+  UpdateRelStyle(normas, s3docs, $offsetX="10", $offsetY="-40")
+  UpdateRelStyle(s3docs, eb, $offsetX="-60", $offsetY="15")
+  UpdateRelStyle(dlq, normas, $offsetX="-230", $offsetY="420")
+  UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")

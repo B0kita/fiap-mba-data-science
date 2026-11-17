@@ -1,0 +1,26 @@
+C4Container
+  title Case 2 · RAG: consulta à base de normas (C4 nível 2)
+
+  Person(usuario, "Analista / Cliente (app)", "Pergunta em linguagem natural")
+
+  System_Boundary(qf, "Quantum Finance · Assistente de normas (us-east-1)") {
+    Container(api, "API de consulta", "API Gateway HTTP API", "Autentica (JWT)")
+    Container(orq, "Orquestrador RAG", "AWS Lambda (Python, 512 MB)", "Conduz as etapas em ordem")
+    Container(titan, "Embeddings", "Bedrock · Titan Embed V2", "Mesmo do case 1 · por token")
+    ContainerDb(vec, "Base vetorial", "Amazon S3 Vectors", "Índice do case 1 · por consulta")
+    Container(llm, "Modelo de linguagem", "Bedrock · Claude Haiku 4.5", "Resposta · token entrada/saída")
+    ContainerDb(audit, "Registro de auditoria", "DynamoDB on-demand", "Uma linha por consulta")
+  }
+
+  Rel(usuario, api, "Pergunta e recebe resposta com fontes (HTTPS)")
+  Rel(api, orq, "Invoca de forma síncrona")
+  Rel(orq, titan, "Vetoriza a pergunta [pago]")
+  Rel(orq, vec, "Busca 5 trechos mais parecidos [pago]")
+  Rel(orq, llm, "Envia prompt + trechos e recebe resposta [pago]")
+  Rel(orq, audit, "Grava pergunta, resposta, fontes e status [pago]")
+
+  UpdateRelStyle(orq, llm, $offsetX="-260", $offsetY="80")
+  UpdateRelStyle(orq, audit, $offsetX="10", $offsetY="140")
+  UpdateRelStyle(orq, titan, $offsetX="-60", $offsetY="-20")
+  UpdateRelStyle(api, orq, $offsetX="-30", $offsetY="25")
+  UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")

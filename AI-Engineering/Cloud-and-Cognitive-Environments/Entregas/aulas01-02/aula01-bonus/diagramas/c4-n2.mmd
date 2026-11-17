@@ -1,0 +1,23 @@
+C4Container
+  title Onboarding digital · C4 nível 2 (contêineres)
+  Person(cliente, "Cliente", "App no celular")
+  System_Boundary(p, "Plataforma de onboarding") {
+    Container(api, "API de onboarding", "API Gateway", "sa-east-1")
+    Container(sfn, "Orquestrador", "Step Functions Express", "Síncrono · < 30 s")
+    ContainerDb(docs, "Documentos", "Amazon S3 (SSE-KMS)", "Expira em 90 dias")
+    Container(ocr, "Leitura do documento", "Textract AnalyzeID", "Por página")
+    Container(face, "Biometria", "Rekognition", "DetectFaces + CompareFaces")
+    ContainerDb(db, "Propostas", "DynamoDB on-demand", "Decisão e motivo")
+  }
+  System_Ext(bureau, "Bureau de crédito", "HTTPS")
+  Rel(cliente, api, "Envia selfie e pede decisão")
+  Rel(cliente, docs, "Envia fotos (URL pré-assinada)")
+  Rel(api, sfn, "Inicia execução síncrona")
+  Rel(sfn, ocr, "Extrai campos [pago]")
+  Rel(sfn, face, "Detecta e compara rostos [pago]")
+  Rel(sfn, bureau, "Consulta CPF")
+  Rel(sfn, db, "Grava decisão [pago]")
+  UpdateRelStyle(sfn, face, $offsetX="-240", $offsetY="80")
+  UpdateRelStyle(sfn, db, $offsetX="10", $offsetY="140")
+  UpdateRelStyle(cliente, docs, $offsetX="-150", $offsetY="80")
+  UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")

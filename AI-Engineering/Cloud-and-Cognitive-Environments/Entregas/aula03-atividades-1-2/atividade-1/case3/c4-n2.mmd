@@ -1,0 +1,28 @@
+C4Container
+  title Case 3 · Análise de ligações do call center (C4 nível 2)
+
+  System_Ext(central, "Central de atendimento", "Grava as ligações")
+
+  System_Boundary(qf, "Quantum Finance · Call center analytics (us-east-1)") {
+    ContainerDb(grav, "Gravações", "Amazon S3 (SSE-KMS)", "Áudio · expira em 90 dias")
+    Container(eb, "Disparo", "Amazon EventBridge", "Regra Object Created")
+    Container(sfn, "Orquestrador", "AWS Step Functions Standard", "4 etapas · Retry/Catch")
+    Container(trs, "Transcrição", "Amazon Transcribe", "pt-BR · redação de PII")
+    Container(pii, "Verificação de PII", "AWS Lambda", "Bloqueia texto não mascarado")
+    Container(llm, "Análise", "Bedrock · Claude Haiku 4.5", "Qualidade e conformidade")
+    ContainerDb(res, "Resultados", "Amazon DynamoDB", "1 linha e 1 status por ligação")
+  }
+
+  Rel(central, grav, "Envia ligação gravada")
+  Rel(grav, eb, "Emite Object Created")
+  Rel(eb, sfn, "Inicia uma execução")
+  Rel(sfn, trs, "Transcreve e mascara [pago]")
+  Rel(sfn, pii, "Verifica o texto [pago]")
+  Rel(sfn, llm, "Analisa o texto mascarado [pago]")
+  Rel(sfn, res, "Grava resultado ou evento de falha [pago]")
+  Rel(trs, grav, "Lê o áudio e grava a transcrição mascarada")
+
+  UpdateRelStyle(sfn, llm, $offsetX="30", $offsetY="10")
+  UpdateRelStyle(sfn, res, $offsetX="10", $offsetY="140")
+  UpdateRelStyle(trs, grav, $offsetX="-40", $offsetY="-20")
+  UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")

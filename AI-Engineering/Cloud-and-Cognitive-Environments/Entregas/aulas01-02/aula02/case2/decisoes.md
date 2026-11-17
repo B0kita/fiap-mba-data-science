@@ -1,0 +1,15 @@
+# Case 2 · RAG: consulta à base de normas — Decisões de serviço
+
+Região: **us-east-1**, a mesma do case 1, porque o índice do S3 Vectors é regional e é reaproveitado. As perguntas de clientes podem conter dados pessoais. Premissa: o app não envia CPF nem dados de conta na pergunta, e a tabela de auditoria guarda o identificador pseudonimizado do usuário. Esse risco de LGPD fica registrado.
+
+| # | Necessidade | Escolha | Descartada | Por quê |
+|---|---|---|---|---|
+| 1 | Receber a pergunta (analista e app) | **Amazon API Gateway · HTTP API** + autorizador JWT (Cognito / IdP corporativo) | API Gateway REST API / Application Load Balancer | O HTTP API custa US$ 1,00 por milhão, contra US$ 3,50 do REST, e valida o JWT nativamente. O ALB tem custo fixo por hora (~US$ 16/mês) para 76 mil chamadas. |
+| 2 | Coordenar as etapas (vetorizar → buscar → prompt → registrar) | **AWS Lambda** "Orquestrador RAG" (Python, 512 MB, timeout de 29 s) | AWS Step Functions Express / Bedrock Knowledge Bases `RetrieveAndGenerate` | O fluxo é síncrono, linear e o usuário espera a resposta: uma função em código dá controle do prompt, das fontes e do registro. O Step Functions acrescenta transições num caminho que não ramifica. A Knowledge Base exigiria refazer a ingestão do case 1 dentro dela e dá menos controle sobre o número de trechos. |
+| 3 | Vetorizar a pergunta | **Bedrock · Titan Text Embeddings V2** | Qualquer outro modelo | A pergunta **precisa** usar o mesmo modelo e as mesmas 1.024 dimensões dos trechos indexados no case 1. Com outro modelo, a busca não funciona. |
+| 4 | Buscar trechos parecidos | **Amazon S3 Vectors** (índice `normas-idx` do case 1, `topK = 5`) | OpenSearch Serverless | Reaproveita a base sem migração. Para 76 mil buscas por mês, a latência de centenas de ms do S3 Vectors cabe no "resposta em segundos". O OpenSearch daria latência menor, com piso de OCUs 24 h. |
+| 5 | Gerar a resposta com fontes | **Bedrock · Claude Haiku 4.5** (US$ 1 / US$ 5 por M tokens de entrada/saída) | Claude Sonnet 4.5 (US$ 3 / US$ 15) | Com RAG, o modelo resume trechos que já vêm prontos, sem raciocínio longo. O Haiku responde em segundos e custa 1/3. Com o Sonnet, a mesma carga sairia ≈ US$ 1.149/mês contra ≈ US$ 383 (ver premissas.md). |
+| 6 | Registrar para auditoria | **Amazon DynamoDB** on-demand (tabela `auditoria-consultas`, PITR ligado) | Amazon RDS / só CloudWatch Logs | Uma escrita por consulta, acesso por `consulta_id` e por usuário/data (GSI), sem servidor. O RDS cobra instância 24 h (~US$ 15+/mês) para 76 mil inserts. O CloudWatch Logs não garante o registro estruturado nem a consulta por auditor. |
+| 7 | Logs da API e da função | **Amazon CloudWatch Logs** | Nenhum (sem logs) | Diagnóstico de erros e latência. ≈ 3 KB por consulta, US$ 0,11/mês. A trilha de auditoria fica no DynamoDB, não aqui. |
+
+Fora do escopo: cache de respostas repetidas, Bedrock Guardrails e reranking. São alavancas de custo e qualidade para o checkpoint 5, não fazem parte do fluxo principal.

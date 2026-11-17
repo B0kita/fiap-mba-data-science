@@ -1,0 +1,39 @@
+sequenceDiagram
+  autonumber
+  actor N as Time de normas
+  participant S3 as Documentos originais<br/>(Amazon S3)
+  participant EB as Disparo por evento<br/>(EventBridge)
+  participant L as Ingestor<br/>(AWS Lambda)
+  participant T as Embeddings<br/>(Bedrock Titan V2)
+  participant V as Base vetorial<br/>(S3 Vectors)
+  participant Q as Fila de falhas<br/>(SQS DLQ)
+
+  N->>S3: Envia documento novo/atualizado (PUT) [pago: GB armazenado]
+  S3-)EB: Evento Object Created (gratuito)
+  EB-)L: Invoca assincronamente com bucket/chave [pago: invocação x duração x memória]
+  L->>S3: Lê o PDF original (GET)
+  S3-->>L: Arquivo (~2 MB, 20 páginas)
+  L->>L: Extrai texto e quebra em 30 trechos de 500 tokens (20% sobreposição)
+  alt Documento atualizado
+    L->>V: Apaga vetores da versão anterior (DeleteVectors por doc_id)
+  end
+  loop Para cada um dos 30 trechos
+    L->>T: InvokeModel(trecho) [pago: 500 tokens de entrada]
+    alt Sucesso
+      T-->>L: Vetor de 1.024 números
+    else Throttling / erro 5xx
+      T-->>L: Erro
+      L->>T: Nova tentativa com backoff exponencial (até 3x)
+    end
+  end
+  L->>V: PutVectors (30 vetores + metadados) [pago: GB gravado]
+  alt Indexação concluída
+    V-->>L: OK
+    Note over L,V: Documento disponível para consulta (case 2)
+  else Falha persistente (PDF ilegível, Bedrock indisponível, timeout)
+    L->>L: Lança exceção (execução falha)
+    Note over EB,L: Lambda refaz a invocação assíncrona 2x automaticamente
+    L-)Q: Após a 3ª falha, envia o evento original + motivo para a DLQ
+    Q--)N: Alarme (CloudWatch) avisa o time de normas: documento e motivo da falha
+    Note over N,Q: Documento fica fora do índice até ser reprocessado a partir da DLQ
+  end

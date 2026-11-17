@@ -1,0 +1,40 @@
+sequenceDiagram
+  autonumber
+  actor C as Cliente
+  participant API as API de onboarding<br/>(API Gateway)
+  participant D as Documentos<br/>(S3)
+  participant O as Orquestrador<br/>(Step Functions Express)
+  participant OCR as Leitura do documento<br/>(Textract AnalyzeID)
+  participant F as Biometria<br/>(Rekognition)
+  participant B as Bureau de crédito
+  participant DB as Propostas<br/>(DynamoDB)
+
+  C->>D: PUT frente, verso e selfie via URL pré-assinada [pago: GB + PUT]
+  C->>API: POST /propostas/{id}/decisao [pago: 1 req]
+  API->>O: StartSyncExecution (timeout 29 s) [pago: execução + duração]
+  O->>OCR: AnalyzeID(frente, verso) [pago: 2 páginas]
+  OCR-->>O: Nome, CPF, nascimento, nº doc
+  alt Documento ilegível ou CPF divergente
+    O->>DB: PutItem(status=RECUSADO, motivo=documento) [pago]
+    O-->>API: Recusado + motivo
+  else Documento válido
+    O->>F: DetectFaces(selfie) [pago: 1 imagem]
+    O->>F: CompareFaces(selfie, foto do documento) [pago: 1 imagem]
+    F-->>O: Rosto encontrado? similaridade %
+    alt Similaridade abaixo do limite
+      O->>DB: PutItem(status=ANALISE_MANUAL, motivo=biometria) [pago]
+      O-->>API: Análise manual
+    else Biometria OK
+      O->>B: POST /score {cpf} (tarefa HTTP, timeout 5 s)
+      alt Bureau não responde (após 2 retries)
+        O->>DB: PutItem(status=ANALISE_MANUAL, motivo=bureau) [pago]
+        O-->>API: Análise manual
+      else Score recebido
+        B-->>O: Score e restrições
+        O->>DB: PutItem(status=APROVADO ou RECUSADO, motivo) [pago]
+        O-->>API: Decisão
+      end
+    end
+  end
+  API-->>C: Resposta (≤ 30 s no p95)
+  Note over O: Chamadas pagas por abertura: 2 págs Textract + 2 imagens Rekognition + 1 escrita DynamoDB + 1 execução Express + 1 req API
